@@ -1,0 +1,255 @@
+'****************************************************************
+'*  Name    : UNTITLED.BAS                                      *
+'*  Author  : [select VIEW...EDITOR OPTIONS]                    *
+'*  Notice  : Copyright (c) 2020 [select VIEW...EDITOR OPTIONS] *
+'*          : All Rights Reserved                               *
+'*  Date    : 1/17/2020                                         *
+'*  Version : 1.0                                               *
+'*  Notes   : PORTC = %00000110 forward                         *
+'           : PORTC = %00000101 right                           *
+'           : PORTC = %00001010 left                            *
+'****************************************************************
+ANSEL = %00000111
+ANSELH = %00000000
+
+TRISA = %00001111
+TRISB = %00000000
+TRISC = %00000000
+TRISD = %00000000
+TRISE = %00000001
+
+PORTA=%00000000
+PORTB=%00000000
+PORTC=%00000000
+PORTD=%00000000
+PORTE=%00000000
+
+define LCD_DREG PORTD
+define LCD_DBIT 4
+define LCD_EREG PORTB
+define LCD_EBIT 0
+define LCD_RWREG PORTB
+define LCD_RWBIT 1
+define LCD_RSREG PORTB
+define LCD_RSBIT 2
+
+define LCD_BITS 4
+define LCD_LINES 2
+define LCD_COMMANDUS 1500
+define LCD_DATAUS 44
+
+FLAGS = 0
+
+define ADC_BITS 8
+define ADC_CLOCK 3
+define ADC_SAMPLEUS 50
+ADCON0 = %11000000
+ADCON1 = %00000000
+
+' Config
+left_dist var word
+left_dist = 10
+front_dist var word
+front_dist = 15
+
+' Sensors
+sens_raw_left var word
+sens_raw_front var word
+sens_raw_ir var word
+sens_raw_line var word
+
+sens_left var word
+sens_front var word
+
+' State
+line_last var bit
+lines var word
+timer var word
+commitment var word
+
+line_last = 0
+lines = 0
+timer = 0
+commitment = 0
+
+PAUSE 100
+lcdout $FE, $01, "reset"
+PAUSE 1000
+
+init:
+    lcdout $FE, $01, "start"
+    PORTC=%00000110
+    pause 2000
+
+main:
+    ' Commitment means we will commit to a move for a certain time
+    if commitment > 0 then
+        commitment = commitment - 1
+    endif
+
+    ADCIN 3, sens_raw_left
+    ADCIN 2, sens_raw_front
+    ADCIN 0, sens_raw_ir
+    ADCIN 5, sens_raw_line
+
+    sens_left = ((6787 / (sens_raw_left - 3)) - 4) / 5
+    if sens_left > 255 then
+        sens_left = 255
+    endif
+    sens_front = ((6787 / (sens_raw_front - 3)) - 4) / 5
+    if sens_front > 255 then
+        sens_front = 255
+    endif
+
+    if lines = 2 then
+        PORTC = %00001001
+        pause 500
+        PORTC = %00000101
+        pause 700
+        PORTC = %00000110
+        pause 500
+        PORTC = %00000101
+        pause 600
+        lines = lines + 1
+    endif
+
+    if lines = 4 then
+        if timer = 100 then
+            PORTC = %00000101
+            pause 500
+            PORTC = %00000110
+            pause 500
+            PORTC = %00000101
+            pause 800
+            lines = lines + 1
+            timer = 0
+        endif
+        timer = timer + 1
+    endif
+
+    if lines = 5 then
+        if timer = 720 then
+            PORTC = %00000101
+            pause 600
+            PORTC = %00000110
+            pause 500
+            PORTC = %00000101
+            pause 400
+            lines = lines + 1
+            timer = 0
+        endif
+        timer = timer + 1
+    endif
+
+    if lines = 8 then
+        left_dist = 16
+        PORTC = %00001001
+        pause 400
+        PORTC = %00000101
+        pause 1000
+        lines = lines + 1
+    endif
+
+    if lines = 10 then
+        PORTC = %00001001
+        pause 400
+        PORTC = %00000101
+        pause 1000
+        lines = lines + 1
+    endif
+
+    if lines = 12 then
+        left_dist = 10
+        PORTC = %00001001
+        pause 300
+        PORTC = %00000101
+        pause 750
+        PORTC = %00000110
+        pause 400
+        lines = lines + 1
+    endif
+
+    if lines = 14 then
+        left_dist = 9
+    endif
+
+    if lines = 15 then
+        if (sens_front > front_dist) then
+            if (sens_left > 13) then
+                sens_left = 13
+            endif
+        endif
+    endif
+
+    if lines = 16 then
+        left_dist = 11
+        PORTC = %00001001
+        pause 500
+        PORTC = %00001010
+        pause 600
+        PORTC = %00000110
+        pause 700
+        lines = lines + 1
+    endif
+
+    if commitment <= 0 then
+        PORTC = %00000110
+        commitment = 13
+
+        if sens_front < front_dist then
+            if sens_left < 20 then
+                PORTC = %00000101
+                commitment = 10
+            else
+                PORTC = %00001010
+                commitment = 8
+            endif
+        else
+            if sens_left < left_dist then
+                PORTC = %00000101
+                commitment = 0
+            elseif sens_left > 44 THEn
+                PORTC = %00000010
+                commitment = 10
+            elseif sens_left > left_dist + 5 then
+                PORTC = %00001010
+                commitment = 0
+            endif
+        endif
+    endif
+
+    if sens_raw_ir < 8 then
+        PORTC = %00000110
+        pause 800
+
+        PORTC = %00000000
+        PORTB = %00100000
+
+        PORTC = %00001010
+        PAUSE 1000
+        PORTC = %00000101
+        PAUSE 1000
+    else
+        PORTB = %00000000
+    endif
+
+    if sens_raw_line < 100 then
+        if NOT line_last then
+            lines = lines + 1
+            line_last = 1
+        endif
+    else
+        line_last = 0
+    endif
+
+    lcdout $FE, $01
+    lcdout $FE, $80, "l:", #sens_left
+    lcdout $FE, $C0, "f:", #sens_front
+    lcdout $FE, $80 + 6, "i:", #sens_raw_ir
+    lcdout $FE, $C0 + 6, "n:", #sens_raw_line
+    lcdout $FE, $80 + 12, #lines
+    lcdout $FE, $C0 + 12, #timer
+
+    PAUSE 20
+
+GOTO main
